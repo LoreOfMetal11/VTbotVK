@@ -14,7 +14,7 @@ from vk_api.utils import get_random_id
 
 FVT_URL = "https://fvt.pnzgu.ru/"
 DEAN_URL = "https://fvt.pnzgu.ru/history"
-NEWS_URL = "https://pnzgu.ru/news"
+NEWS_URL = "https://vt.pnzgu.ru/news"
 SCHEDULE_URL = "https://pnzgu.ru/schedule"
 VT_URL = "https://vt.pnzgu.ru/"
 VUC_URL = "https://vuc.pnzgu.ru/studentam_postuplenie_v_vuc"
@@ -261,7 +261,7 @@ def make_keyboard(section):
     layouts = {
         "main": [
             ["О факультете", "Хочу поступить"],
-            ["Частые вопросы", "Новости ПГУ"],
+            ["Частые вопросы", "Новости ВТ"],
             ["Деканат", "Задать вопрос"],
         ],
         "admissions": [
@@ -316,7 +316,7 @@ def get_news():
         return news_cache["text"]
 
     fallback = (
-        "Новости ПГУ\n\n"
+        "Новости кафедры ВТ\n\n"
         "[пусто]\n\n"
         f"{NEWS_URL}"
     )
@@ -346,7 +346,7 @@ def get_news():
             if url.scheme not in {"http", "https"}:
                 continue
 
-            if url.hostname not in {"pnzgu.ru", "www.pnzgu.ru"}:
+            if url.hostname != urlparse(NEWS_URL).hostname:
                 continue
 
             if not re.fullmatch(
@@ -376,10 +376,11 @@ def get_news():
                 break
 
         if not items:
+            logging.warning("Не найдены публикации в ленте: %s", NEWS_URL)
             return save_news(fallback, 60)
 
         return save_news(
-            "Первые публикации в ленте ПГУ\n\n"
+            "Первые публикации в ленте кафедры ВТ\n\n"
             + "\n\n".join(items),
             300,
         )
@@ -434,7 +435,10 @@ def make_answer(text):
 
         return "\n".join(lines), "faq"
 
-    if text in {"новости", "новости пгу", "последние новости"}:
+    if text in {
+        "новости", "новости вт", "новости кафедры",
+        "новости кафедры вт", "новости пгу", "последние новости",
+    }:
         return get_news(), "main"
 
     if text == "задать вопрос":
