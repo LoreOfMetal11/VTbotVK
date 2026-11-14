@@ -17,7 +17,7 @@ NEWS_URL = "https://vt.pnzgu.ru/news"
 SCHEDULE_URL = "https://pnzgu.ru/schedule"
 VUC_URL = "https://vuc.pnzgu.ru/studentam_postuplenie_v_vuc"
 SCORES_URL = "https://pnzgu.ru/Abitur/admission/rezult_old"
-ADMISSION_URL = "https://pnzgu.ru/Abitur/admission"
+ADMISSION_URL = "https://pnzgu.ru/Abitur/admission/contacts"
 
 logging.basicConfig(
     level=logging.INFO,
@@ -31,7 +31,6 @@ WELCOME = (
     "Выбирай, что интересно."
 )
 PROGRAMS_NOTE = (
-    "\n\nНаправления и профили приведены по буклету кафедры 2025 года. "
     "Информацию о текущем наборе уточняй в приёмной комиссии.\n"
     + ADMISSION_URL
 )
@@ -76,7 +75,6 @@ TOPICS = {
         "• Обслуживать компьютеры и сетевое оборудование.\n"
         "• Разрабатывать вычислительные системы на современной элементной базе.\n"
         "• Применять интеллектуальные технологии для решения прикладных задач.\n\n"
-        "По материалам буклета кафедры 2025 года."
     ),
     "technologies": (
         "Технологии из буклета кафедры\n\n"
@@ -85,7 +83,6 @@ TOPICS = {
         "Работа с базами данных: SQL.\n\n"
         "Инструменты и фреймворки: Git, Qt, Flutter.\n\n"
         "Языки описания аппаратуры: Verilog и VHDL.\n\n"
-        "Это перечень из буклета 2025 года, а не учебный план каждого профиля."
     ),
     "careers": (
         "Работа после выпуска\n\n"
@@ -106,8 +103,7 @@ TOPICS = {
     "contacts": (
         "Приёмная комиссия ПГУ\n\n"
         "Телефон: 66-62-89.\n"
-        "Адрес: г. Пенза, ул. Красная, 40, корпус 8, этаж 2, аудитория 206.\n\n"
-        "Контакты приведены по буклету 2025 года.\n\n" + ADMISSION_URL
+        "Адрес: г. Пенза, ул. Красная, 40, корпус 8, этаж 2, аудитория 206.\n\n" + ADMISSION_URL
     ),
     "links": "Выбери нужную ссылку: сайт кафедры, расписание, ВУЦ или баллы прошлых лет.",
     "department_contacts": (
