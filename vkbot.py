@@ -1,6 +1,9 @@
 import logging
+import queue
 import re
+import threading
 import time
+from collections import deque
 from getpass import getpass
 from urllib.parse import urljoin, urlparse
 
@@ -10,7 +13,6 @@ from bs4 import BeautifulSoup
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 from vk_api.utils import get_random_id
-
 
 VT_URL = "https://vt.pnzgu.ru/"
 NEWS_URL = "https://vt.pnzgu.ru/news"
@@ -30,6 +32,7 @@ WELCOME = (
     "Ещё здесь можно посмотреть новости и полезные ссылки.\n\n"
     "Выбирай, что интересно."
 )
+UNKNOWN_ANSWER = "[пусто]"
 PROGRAMS_NOTE = (
     "Информацию о текущем наборе уточняй в приёмной комиссии.\n"
     + ADMISSION_URL
@@ -50,22 +53,22 @@ TOPICS = {
         "Профили:\n"
         "• «Прикладной искусственный интеллект»;\n"
         "• «Программное обеспечение средств ВТ и автоматизированных систем».\n\n"
-        "Очная форма обучения, срок обучения - 4 года." + PROGRAMS_NOTE
+        "Очная форма обучения, срок обучения - 4 года. " + PROGRAMS_NOTE
     ),
     "specialist": (
         "Специалитет\n\n09.05.01 «Применение и эксплуатация автоматизированных "
         "систем специального назначения»\n\n"
         "Специализация: «Применение, эксплуатация вычислительных машин, комплексов, "
         "систем и сетей специального назначения».\n\n"
-        "Очная форма обучения, срок обучения - 5 лет." + PROGRAMS_NOTE
+        "Очная форма обучения, срок обучения - 5 лет. " + PROGRAMS_NOTE
     ),
     "master": (
         "Магистратура\n\n09.04.01 «Информатика и вычислительная техника»\n\n"
         "Магистерская программа «Прикладной искусственный интеллект».\n\n"
-        "Очная форма обучения, срок обучения - 2 года." + PROGRAMS_NOTE
+        "Очная форма обучения, срок обучения - 2 года. " + PROGRAMS_NOTE
     ),
     "postgraduate": (
-        "Аспирантура\n\n2.3.2 «Вычислительные системы и их элементы»." + PROGRAMS_NOTE
+        "Аспирантура\n\n2.3.2 «Вычислительные системы и их элементы». " + PROGRAMS_NOTE
     ),
     "skills": (
         "Чему можно научиться\n\n"
@@ -74,7 +77,7 @@ TOPICS = {
         "• Устанавливать и администрировать программное обеспечение.\n"
         "• Обслуживать компьютеры и сетевое оборудование.\n"
         "• Разрабатывать вычислительные системы на современной элементной базе.\n"
-        "• Применять интеллектуальные технологии для решения прикладных задач.\n\n"
+        "• Применять интеллектуальные технологии для решения прикладных задач."
     ),
     "technologies": (
         "Технологии из буклета кафедры\n\n"
@@ -82,7 +85,7 @@ TOPICS = {
         "Веб-технологии: HTML и CSS.\n\n"
         "Работа с базами данных: SQL.\n\n"
         "Инструменты и фреймворки: Git, Qt, Flutter.\n\n"
-        "Языки описания аппаратуры: Verilog и VHDL.\n\n"
+        "Языки описания аппаратуры: Verilog и VHDL."
     ),
     "careers": (
         "Работа после выпуска\n\n"
@@ -151,6 +154,7 @@ LAYOUTS = {
 
 TOPIC_SECTIONS = {
     "about": "about", "department_contacts": "about", "department_site": "about",
+    "brochure": "about",
     "programs": "programs", "bachelor": "programs", "specialist": "programs",
     "master": "programs", "postgraduate": "programs",
     "skills": "skills", "technologies": "skills", "careers": "skills",
@@ -176,7 +180,8 @@ ALIASES = {
     "department_site": ["сайт кафедры", "сайт кафедры вт", "сайт"],
     "schedule": ["расписание", "расписание занятий", "расписание пар", "где посмотреть расписание"],
     "vuc": ["военный учебный центр", "вуц", "военка", "военная кафедра"],
-    "past_scores": ["баллы прошлых лет", "баллы", "проходной балл", "проходные баллы", "проходные баллы прошлых лет", "результаты прошлых лет"],
+    "past_scores": ["баллы прошлых лет", "баллы", "проходной балл", "проходные баллы",
+                    "проходные баллы прошлых лет", "результаты прошлых лет"],
 }
 
 FAQ = [
@@ -192,6 +197,46 @@ FAQ = [
     ("Какие проходные баллы были раньше?", "past_scores"),
     ("Где посмотреть буклет?", "brochure"),
 ]
+
+# Защита от спама: настройки
+SPAM_LIMIT = 10
+SPAM_WINDOW = 60
+SPAM_WARNING = "Слишком много сообщений. Подожди минуту и попробуй ещё раз."
+
+# LLM: настройки
+LLM_ENABLED = False  # вкл/выкл
+LLM_URL = "http://127.0.0.1:11434/api/chat"  # Ollama
+LLM_MODEL = "qwen3.5:4b" # альтернатива - gemma4:e4b
+LLM_TIMEOUT = (5, 120)  # таймауты, сек
+LLM_MAX_TOKENS = 300  # лимит длины ответа
+LLM_NUM_CTX = 4096  # размер контекста
+LLM_KEEP_ALIVE = -1  # модель остаётся в памяти
+LLM_THINK = False  # без режима рассуждений
+LLM_WORKERS = 1  # число worker-потоков
+LLM_QUEUE_LIMIT = 5  # длина очереди
+LLM_QUESTION_LIMIT = 1000  # лимит вопроса
+LLM_ANSWER_LIMIT = 4000  # лимит ответа
+LLM_ACK_ANSWER = "Принял вопрос, готовлю ответ. Он будет готов в течении минуты."
+LLM_BUSY_ANSWER = "Готовится ответ на прошлый вопрос. Пожалуйста, подождите."
+LLM_OVERLOAD_ANSWER = "Сейчас слишком много вопросов. Попробуй ещё раз через минуту."
+LLM_FALLBACK_ANSWER = (
+    "Не получилось получить ответ. Попробуй позже или выбери раздел в меню.\n\n"
+    "Контакты кафедры:\n" + VT_URL
+)
+LLM_SYSTEM_PROMPT = (
+    "Ты — помощник кафедры «Вычислительная техника» (ВТ) ПГУ во ВКонтакте. "
+    "Отвечай кратко, по-русски и только по теме кафедры и поступления. "
+    "Если точного ответа не знаешь — честно скажи об этом и предложи обратиться "
+    "в приёмную комиссию (телефон 66-62-89) или на сайт кафедры. "
+    "Не выдумывай даты, цифры и требования.\n\n"
+    "Факты о кафедре:\n"
+    + TOPICS["about"] + "\n\n"
+    + TOPICS["bachelor"] + "\n\n"
+    + TOPICS["specialist"] + "\n\n"
+    + TOPICS["master"] + "\n\n"
+    + TOPICS["postgraduate"] + "\n\n"
+    + TOPICS["contacts"]
+)
 
 
 def normalize(text):
@@ -293,11 +338,14 @@ def make_answer(text):
         number = int(match.group(1))
         if 1 <= number <= len(FAQ):
             return answer_topic(FAQ[number - 1][1])
-        return "[пусто]", "main"
+        return UNKNOWN_ANSWER, "main"
     topic = COMMANDS.get(text)
     if topic:
         return answer_topic(topic)
-    return "[пусто]", "main"
+    if not text:
+        return UNKNOWN_ANSWER, "main"
+    # Свободный текст -> LLM
+    return None, "main"
 
 
 def send_answer(vk, peer_id, text, keyboard):
@@ -316,6 +364,101 @@ def send_answer(vk, peer_id, text, keyboard):
         vk.messages.send(**params)
 
 
+# Защита от спама: учёт сообщений
+spam_log = {}  # время сообщений
+spam_warned = {}  # время предупреждений
+
+
+def is_spam(peer_id):
+    now = time.monotonic()
+    times = spam_log.setdefault(peer_id, deque())
+    while times and now - times[0] >= SPAM_WINDOW:
+        times.popleft()
+    if len(times) >= SPAM_LIMIT:
+        return True
+    times.append(now)
+    return False
+
+
+def spam_warning_needed(peer_id):
+    now = time.monotonic()
+    last = spam_warned.get(peer_id)
+    if last is None or now - last >= SPAM_WINDOW:
+        spam_warned[peer_id] = now
+        return True
+    return False
+
+
+# LLM: очередь и учёт занятых пользователей
+llm_queue = queue.Queue(maxsize=LLM_QUEUE_LIMIT)
+llm_lock = threading.Lock()
+llm_busy_users = set()
+
+
+# LLM: запрос к модели
+def ask_llm(question):
+    payload = {
+        "model": LLM_MODEL,
+        "messages": [
+            {"role": "system", "content": LLM_SYSTEM_PROMPT},
+            {"role": "user", "content": question[:LLM_QUESTION_LIMIT]},
+        ],
+        "stream": False,
+        "think": LLM_THINK,
+        "keep_alive": LLM_KEEP_ALIVE,
+        "options": {
+            "temperature": 0.3,
+            "num_predict": LLM_MAX_TOKENS,
+            "num_ctx": LLM_NUM_CTX,
+        },
+    }
+    try:
+        response = requests.post(LLM_URL, json=payload, timeout=LLM_TIMEOUT)
+        response.raise_for_status()
+        data = response.json()
+        answer = data["message"]["content"].strip()
+        return answer or None
+    except (requests.RequestException, ValueError, KeyError, IndexError, TypeError) as error:
+        logging.warning("LLM недоступна или ответ некорректен: %s", type(error).__name__)
+        return None
+
+
+# LLM: постановка вопроса в очередь
+def handle_llm_request(vk, peer_id, question, keyboards):
+    if not LLM_ENABLED:
+        send_answer(vk, peer_id, UNKNOWN_ANSWER, keyboards["main"])
+        return
+    with llm_lock:
+        if peer_id in llm_busy_users:
+            reply = LLM_BUSY_ANSWER  # ответ на прошлый вопрос ещё готовится
+        else:
+            try:
+                llm_queue.put_nowait((peer_id, question))
+            except queue.Full:
+                reply = LLM_OVERLOAD_ANSWER
+            else:
+                llm_busy_users.add(peer_id)
+                reply = LLM_ACK_ANSWER
+    send_answer(vk, peer_id, reply, keyboards["main"])
+
+
+# LLM: worker-поток
+def llm_worker(vk, keyboards):
+    while True:
+        peer_id, question = llm_queue.get()
+        try:
+            answer = ask_llm(question) or LLM_FALLBACK_ANSWER
+            send_answer(vk, peer_id, answer[:LLM_ANSWER_LIMIT], keyboards["main"])
+        except vk_api.exceptions.ApiError as error:
+            logging.warning("Не удалось отправить ответ LLM. Код VK: %s", error.code)
+        except requests.RequestException:
+            logging.warning("Ошибка соединения при отправке ответа LLM.")
+        finally:
+            with llm_lock:
+                llm_busy_users.discard(peer_id)
+            llm_queue.task_done()
+
+
 def main():
     token = getpass("Ключ сообщества: ").strip()
     if not token:
@@ -329,10 +472,17 @@ def main():
     if group_id <= 0:
         print("ID должен быть положительным числом.")
         return
+
     session = vk_api.VkApi(token=token)
     vk = session.get_api()
     keyboards = {name: make_keyboard(name) for name in LAYOUTS}
+
+    # Запуск LLM-worker потоков
+    for _ in range(LLM_WORKERS):
+        threading.Thread(target=llm_worker, args=(vk, keyboards), daemon=True).start()
+
     print("Бот запущен. Для остановки нажми Ctrl+C.")
+    print("LLM:", "включена" if LLM_ENABLED else "выключена (задел готов)")
     while True:
         try:
             longpoll = VkBotLongPoll(session, group_id)
@@ -344,9 +494,25 @@ def main():
                     continue
                 if message["peer_id"] != message["from_id"]:
                     continue
+                peer_id = message["peer_id"]
+
+                if is_spam(peer_id):
+                    if spam_warning_needed(peer_id):
+                        logging.warning("Флуд от пользователя %s", peer_id)
+                        try:
+                            send_answer(vk, peer_id, SPAM_WARNING, keyboards["main"])
+                        except vk_api.exceptions.ApiError as error:
+                            logging.warning("Не удалось отправить предупреждение. Код VK: %s", error.code)
+                        except requests.RequestException:
+                            logging.warning("Ошибка соединения при отправке предупреждения.")
+                    continue
+
                 answer, section = make_answer(message.get("text"))
                 try:
-                    send_answer(vk, message["peer_id"], answer, keyboards[section])
+                    if answer is None:
+                        handle_llm_request(vk, peer_id, message.get("text"), keyboards)
+                    else:
+                        send_answer(vk, peer_id, answer, keyboards[section])
                 except vk_api.exceptions.ApiError as error:
                     logging.warning("Не удалось отправить ответ. Код VK: %s", error.code)
                 except requests.RequestException:
