@@ -13,6 +13,7 @@ from bs4 import BeautifulSoup
 from vk_api.bot_longpoll import VkBotLongPoll, VkBotEventType
 from vk_api.keyboard import VkKeyboard, VkKeyboardColor
 from vk_api.utils import get_random_id
+import rag
 
 VT_URL = "https://vt.pnzgu.ru/"
 NEWS_URL = "https://vt.pnzgu.ru/news"
@@ -204,7 +205,8 @@ SPAM_WINDOW = 60
 SPAM_WARNING = "Слишком много сообщений. Подожди минуту и попробуй ещё раз."
 
 # LLM: настройки
-LLM_ENABLED = False  # вкл/выкл
+LLM_ENABLED = True  # вкл/выкл
+RAG_ENABLED = True  # RAG: вкл/выкл
 LLM_URL = "http://127.0.0.1:11434/api/chat"  # Ollama
 LLM_MODEL = "qwen3.5:4b" # альтернатива - gemma4:e4b
 LLM_TIMEOUT = (5, 120)  # таймауты, сек
@@ -222,6 +224,14 @@ LLM_OVERLOAD_ANSWER = "Сейчас слишком много вопросов. 
 LLM_FALLBACK_ANSWER = (
     "Не получилось получить ответ. Попробуй позже или выбери раздел в меню.\n\n"
     "Контакты кафедры:\n" + VT_URL
+)
+LLM_NO_CONTEXT_ANSWER = UNKNOWN_ANSWER # RAG: нет подходящих данных
+RAG_SYSTEM_PROMPT = (  # RAG: правила без дампа фактов
+    "Ты — помощник кафедры «Вычислительная техника» (ВТ) ПГУ во ВКонтакте. "
+    "Отвечай кратко, по-русски, только на основе данных из блока «Контекст». "
+    "Если в контексте нет ответа, скажи об этом и предложи обратиться "
+    "в приёмную комиссию (телефон 66-62-89) или на сайт кафедры. "
+    "Не выдумывай даты, цифры и требования."
 )
 LLM_SYSTEM_PROMPT = (
     "Ты — помощник кафедры «Вычислительная техника» (ВТ) ПГУ во ВКонтакте. "
@@ -397,6 +407,20 @@ llm_busy_users = set()
 
 # LLM: запрос к модели
 def ask_llm(question):
+    system_prompt = LLM_SYSTEM_PROMPT  # запасной вариант: факты из TOPICS
+    user_text = question[:LLM_QUESTION_LIMIT]
+    # RAG: подбор контекста
+    if RAG_ENABLED and rag.is_ready():
+        try:
+            found = rag.retrieve(user_text)
+        except (requests.RequestException, ValueError, KeyError):
+            logging.warning("Ошибка поиска RAG, используем запасной режим")
+        else:
+            if not found:
+                return LLM_NO_CONTEXT_ANSWER
+            context = "\n\n---\n\n".join(chunk for _, chunk in found)
+            system_prompt = RAG_SYSTEM_PROMPT
+            user_text = f"Контекст:\n{context}\n\nВопрос: {user_text}"
     payload = {
         "model": LLM_MODEL,
         "messages": [
@@ -460,6 +484,8 @@ def llm_worker(vk, keyboards):
 
 
 def main():
+    if RAG_ENABLED:
+        rag.load_index()  # RAG: загрузка индекса
     token = getpass("Ключ сообщества: ").strip()
     if not token:
         print("Ключ не введён.")
