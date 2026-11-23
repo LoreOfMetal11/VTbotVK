@@ -17,7 +17,7 @@ EMBED_TIMEOUT = (5, 60)  # таймауты, сек
 KNOWLEDGE_DIR = Path("knowledge")  # папка с .md/.txt
 INDEX_DIR = Path("rag_index")  # папка индекса
 CHUNK_WORDS = 200  # размер чанка, слов
-TOP_K = 3  # число чанков в ответе
+TOP_K = 6  # число чанков в ответе
 MIN_SCORE = 0.45  # порог релевантности. Можно понастраивать. 
 
 _chunks = []
