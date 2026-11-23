@@ -208,10 +208,10 @@ SPAM_WARNING = "Слишком много сообщений. Подожди м�
 LLM_ENABLED = True  # вкл/выкл
 RAG_ENABLED = True  # RAG: вкл/выкл
 LLM_URL = "http://127.0.0.1:11434/api/chat"  # Ollama
-LLM_MODEL = "qwen3.5:4b" # альтернатива - gemma4:e4b
+LLM_MODEL = "qwen3.5-4b" # альтернатива - gemma4:e4b
 LLM_TIMEOUT = (5, 120)  # таймауты, сек
-LLM_MAX_TOKENS = 300  # лимит длины ответа
-LLM_NUM_CTX = 4096  # размер контекста
+LLM_MAX_TOKENS = 700  # лимит длины ответа
+LLM_NUM_CTX = 6144  # размер контекста
 LLM_KEEP_ALIVE = -1  # модель остаётся в памяти
 LLM_THINK = False  # без режима рассуждений
 LLM_WORKERS = 1  # число worker-потоков
@@ -228,7 +228,8 @@ LLM_FALLBACK_ANSWER = (
 LLM_NO_CONTEXT_ANSWER = UNKNOWN_ANSWER # RAG: нет подходящих данных
 RAG_SYSTEM_PROMPT = (  # RAG: правила без дампа фактов
     "Ты — помощник кафедры «Вычислительная техника» (ВТ) ПГУ во ВКонтакте. "
-    "Отвечай кратко, по-русски, только на основе данных из блока «Контекст». "
+    "Отвечай по-русски, понятно и достаточно подробно, только на основе данных из блока «Контекст». "
+    "При ответе не пиши в стилистике файла .md"
     "Если в контексте нет ответа, скажи об этом и предложи обратиться "
     "в приёмную комиссию (телефон 66-62-89) или на сайт кафедры. "
     "Не выдумывай даты, цифры и требования."
@@ -424,8 +425,8 @@ def ask_llm(question):
     payload = {
         "model": LLM_MODEL,
         "messages": [
-            {"role": "system", "content": LLM_SYSTEM_PROMPT},
-            {"role": "user", "content": question[:LLM_QUESTION_LIMIT]},
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_text},
         ],
         "stream": False,
         "think": LLM_THINK,
@@ -442,6 +443,11 @@ def ask_llm(question):
         data = response.json()
         answer = data["message"]["content"].strip()
         return answer or None
+    except requests.HTTPError as error:  # LLM: ошибка HTTP с кодом от Ollama
+        logging.warning(
+            "LLM HTTP %s: %s", error.response.status_code, error.response.text[:200]
+        )
+        return None
     except (requests.RequestException, ValueError, KeyError, IndexError, TypeError) as error:
         logging.warning("LLM недоступна или ответ некорректен: %s", type(error).__name__)
         return None
